@@ -1,141 +1,184 @@
-import random, math
-
-INF = 10**6
-n = 8
-d = [[INF] * (n + 1) for _ in range(n + 1)]
-data = {
-    1: [14, 15, None, None, None, None, 17],
-    2: [13, 14, 20, None, None, 21],
-    3: [11, 21, 17, 9, 9],
-    4: [11, 10, 8, 20],
-    5: [15, 18, None],
-    6: [9, None],
-    7: [13],
+"--le problème du voyageur de commerce--!"
+import math
+import random
+"--dictionnare contient les distances entre certaines paires de sommets--!"
+DONNEES = {
+    (1, 2): 14, (1, 3): 15, (1, 8): 17,
+    (2, 3): 13, (2, 4): 14, (2, 5): 20, (2, 8): 21,
+    (3, 4): 11, (3, 5): 21, (3, 6): 17, (3, 7): 9, (3, 8): 9,
+    (4, 5): 11, (4, 6): 10, (4, 7): 8, (4, 8): 20,
+    (5, 6): 15, (5, 7): 18,
+    (6, 7): 9,
+    (7, 8): 13,
 }
-for i, row in data.items():
-    for k, v in enumerate(row):
-        j = i + 1 + k
-        if v is not None:
-            d[i][j] = d[j][i] = v
 
 
-def cout(t):
-    """t = [1, ..., 1] (tournee fermee)"""
-    return sum(d[t[k]][t[k + 1]] for k in range(len(t) - 1))
+N = 8
+INITIAL = [1, 2, 3, 4, 5, 6, 7, 8]
+"!--liste  intial de sommets!--"
 
 
-def fmt(t):
-    return "-".join(map(str, t))
+# Récupérer la distance entre deux sommets, quel que soit leur ordre
+def distance(a, b):
+    return DONNEES.get((min(a, b), max(a, b)))
 
 
-def voisins(t):
-    """echange de deux villes (la ville 1 reste fixe)"""
-    for a in range(1, n):
-        for b in range(a + 1, n):
-            v = t[:]
-            v[a], v[b] = v[b], v[a]
-            yield (t[a], t[b]), v
+def cout(tour):
+    # Fermer le circuit en revenant au sommet de départ
+    route = tour + [tour[0]]
+    total = 0  #inialiser le cout totale
 
+    # Parcourir les paires de sommets
+    for a, b in zip(route, route[1:]):
+        d = distance(a, b)
 
+        if d is None:
+            return math.inf
 
-def tabou(init, iters=6, tenure=3):
-    cur = init[:]
-    best, fbest = cur[:], cout(cur)
-    tabu = {}
-    print("TABOU  solution initiale", fmt(cur), "cout", cout(cur))
-    for it in range(1, iters + 1):
-        cand = None
-        for mv, v in voisins(cur):
-            f = cout(v)
-            est_tabou = tabu.get(frozenset(mv), 0) >= it
-            if est_tabou and f >= fbest:      # aspiration
-                continue
-            if cand is None or f < cand[0]:
-                cand = (f, mv, v)
-        f, mv, cur = cand
-        tabu[frozenset(mv)] = it + tenure
-        if f < fbest:
-            best, fbest = cur[:], f
-        print(f"  it {it}: echange {mv} -> {fmt(cur)} cout {f} | meilleur {fbest}")
-    return best, fbest
+        total += d
 
-def recuit(init, iters=5, T=10.0, alpha=0.8, seed=1):
+    return total
+
+"--!génère les solutions voisines d'un circuit--!"
+def voisins(tour):
+    result = []
+
+    for i in range(1, N - 1):
+        for j in range(i + 1, N):
+            v = tour[:]
+            v[i], v[j] = v[j], v[i]
+
+            if math.isfinite(cout(v)):
+                mouvement = (
+                    min(tour[i], tour[j]),
+                    max(tour[i], tour[j])
+                )
+                result.append((v, mouvement))
+
+    return result
+
+#une méthode d'optimisation locale
+# Effectuer plusieurs départs pour diversifier la recherche
+def recherche_taboue(iterations=100, taille_tabou=10, seed=11):
     random.seed(seed)
-    cur, fcur = init[:], cout(init)
-    best, fbest = cur[:], fcur
-    print("RECUIT solution initiale", fmt(cur), "cout", fcur)
-    for it in range(1, iters + 1):
-        a, b = sorted(random.sample(range(1, n), 2))
-        v = cur[:]
-        v[a], v[b] = v[b], v[a]
-        fv = cout(v)
-        delta = fv - fcur
-        if delta <= 0:
-            ok, p = True, 1.0
+    meilleur_global = INITIAL[:]
+
+    for depart in range(30):
+        if depart == 0:
+            courant = INITIAL[:]
         else:
-            p = math.exp(-delta / T)
-            r = random.random()
-            ok = r < p
-        print(f"  it {it}: T={T:.2f} voisin {fmt(v)} cout {fv} delta={delta} p={p:.3f} -> {'accepte' if ok else 'rejete'}")
-        if ok:
-            cur, fcur = v, fv
-            if fcur < fbest:
-                best, fbest = cur[:], fcur
-        T *= alpha
-    return best, fbest
+            courant = [1] + random.sample(
+                list(range(2, N + 1)), N - 1
+            )
 
-def cout_ind(ind):
-    return cout([1] + ind + [1])
+            essais = 0
 
+            while not math.isfinite(cout(courant)) and essais < 500:
+                courant = [1] + random.sample(
+                    list(range(2, N + 1)), N - 1
+                )
+                essais += 1
 
-def fmt_ind(ind):
-    return fmt([1] + ind + [1])
+            if not math.isfinite(cout(courant)):
+                continue
 
+        meilleur_local = courant[:]
+        tabou = []
 
-def croisement_ox(p1, p2):
-    m = len(p1)
-    a, b = sorted(random.sample(range(m), 2))
-    enfant = [None] * m
-    enfant[a:b + 1] = p1[a:b + 1]
-    reste = [c for c in p2 if c not in enfant]
-    for k in range(m):
-        if enfant[k] is None:
-            enfant[k] = reste.pop(0)
-    return enfant
+        for _ in range(iterations):
+            candidats = []
 
+            for v, mouvement in voisins(courant):
+                if (mouvement not in tabou
+                        or cout(v) < cout(meilleur_local)):
+                    candidats.append((cout(v), v, mouvement))
 
-def genetique(taille=30, gens=40, pm=0.3, seed=1):
+            if not candidats:
+                break
+
+            candidats.sort(key=lambda x: x[0])
+            valeur, courant, mouvement = candidats[0]
+
+            tabou.append(mouvement)
+
+            if len(tabou) > taille_tabou:
+                tabou.pop(0)
+
+            if valeur < cout(meilleur_local):
+                meilleur_local = courant[:]
+
+        if cout(meilleur_local) < cout(meilleur_global):
+            meilleur_global = meilleur_local[:]
+
+    return meilleur_global
+
+# choisir aléatoirement un voisin à chaque itération
+# qui dépend de la température
+def recuit_simule(iterations=5, temperature_initiale=20.0,
+                  alpha=0.8, seed=7):
     random.seed(seed)
-    base = list(range(2, n + 1))
-    pop = []
-    while len(pop) < taille:
-        p = base[:]
-        random.shuffle(p)
-        pop.append(p)
-    best = min(pop, key=cout_ind)
-    for g in range(1, gens + 1):
-        pop.sort(key=cout_ind)
-        parents = pop[:taille // 2]
-        enfants = []
-        while len(enfants) < taille - len(parents):
-            p1, p2 = random.sample(parents, 2)
-            e = croisement_ox(p1, p2)
-            if random.random() < pm:
-                i, j = random.sample(range(len(e)), 2)
-                e[i], e[j] = e[j], e[i]
-            enfants.append(e)
-        pop = parents + enfants
-        b = min(pop, key=cout_ind)
-        if cout_ind(b) < cout_ind(best):
-            best = b
-        if g <= 5 or g % 10 == 0:
-            print(f"  gen {g}: meilleur {fmt_ind(b)} cout {cout_ind(b)}")
-    return [1] + best + [1], cout_ind(best)
+
+    courant = INITIAL[:]
+    meilleur = courant[:]
+    temperature = temperature_initiale
+    historique = []
+
+    for k in range(iterations):
+        candidats = voisins(courant)
+
+        if not candidats:
+            break
+
+        voisin, _ = random.choice(candidats)
+
+        delta = cout(voisin) - cout(courant)
+
+        accepte = (
+            delta <= 0
+            or random.random() < math.exp(
+                -delta / max(temperature, 1e-9)
+            )
+        )
+
+        if accepte:
+            courant = voisin
+
+        if cout(courant) < cout(meilleur):
+            meilleur = courant[:]
+
+        historique.append(
+            (k + 1, temperature, cout(courant), accepte)
+        )
+
+        temperature *= alpha
+
+    return meilleur, historique
+
+#affiche le nom de la méthode, le circuit et son coût
+def afficher(nom, tour):
+    print(nom)
+    print("Circuit :", "-".join(map(str, tour + [tour[0]])))
+
+    if math.isfinite(cout(tour)):
+        print("Coût :", cout(tour))
+    else:
+        print("Coût : circuit non réalisable")
+
+    print()
 
 
 if __name__ == "__main__":
-    init = [1, 2, 3, 4, 5, 6, 7, 8, 1]
-    print(tabou(init), "\n")
-    print(recuit(init), "\n")
-    print("GENETIQUE")
-    print(genetique())
+    print("Solution initiale :")
+    afficher("Circuit initial", INITIAL)
+
+    afficher("Recherche taboue", recherche_taboue())
+
+    solution_rs, historique = recuit_simule()
+    afficher("Recuit simulé (5 itérations)", solution_rs)
+
+    print("Historique (itération, T, coût courant, voisin accepté) :")
+
+    for ligne in historique:
+        print(ligne)
+
+    print()
